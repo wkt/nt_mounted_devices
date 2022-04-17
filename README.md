@@ -4,7 +4,7 @@
 我们的这个脚本就是解决这个问题的。<br/>
 原理也比较简单：<br/>
 &nbsp;&nbsp;先搜索windows的注册表文件，再使用pyregf读取注册表中盘符-分区id对应信息，<br/>
-&nbsp;&nbsp;在根据分区id生成规则计算出id，然后一比对就OK了。
+&nbsp;&nbsp;再根据分区id生成规则计算出id，然后一比对就OK了。
 
 ### 依赖
     udev
@@ -45,7 +45,7 @@ python3 example.py
 ```
 
 ## 运行环境
-    原则要满足依赖的Linux就可以工作
+    原则上只要是满足依赖的Linux系统就可以工作
     但是实测的系统只有:
         Linux: Ubuntu 21.10, Ubuntu 18.04
         Windows: Windows 7/10
