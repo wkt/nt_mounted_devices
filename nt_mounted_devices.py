@@ -70,6 +70,10 @@ def get_partitions():
         if fs_type is None or not (fs_type.lower() in ('ntfs', 'fat32', 'fat', 'fat16', 'exfat', 'vfat', 'msdos')):
             # 不是Windows的文件系统就不管了
             continue
+        pn = info.get('PARTNAME', None)
+        ignore = info.get('UDISKS_IGNORE', '')
+        if pn == 'EFI System Partition' or ignore == '1':
+            continue
         if info.get('DEVTYPE', None) == 'partition':
             dos_part_uuid(info)
             parts.append(info)
