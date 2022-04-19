@@ -16,8 +16,6 @@ import subprocess
 import sys
 from subprocess import Popen, PIPE
 
-import pyregf
-
 
 def udev_info(dev_path):
     """
@@ -68,7 +66,7 @@ def get_partitions():
         info = udev_info(dev)
         fs_type = info.get('ID_FS_TYPE', None)
         if fs_type is None or not (fs_type.lower() in ('ntfs', 'fat32', 'fat', 'fat16', 'exfat', 'vfat', 'msdos')):
-            # 不是Windows的文件系统就不管了
+            # 不是Windows的文件系统的分区就暂且不管了
             continue
         pn = info.get('PARTNAME', None)
         ignore = info.get('UDISKS_IGNORE', '')
@@ -106,12 +104,13 @@ def to_part_uuid(d: bytes):
     return d
 
 
-def get_mounted_devices(rgf):
+def get_mounted_devices_regf(rgf):
     """
-    读取注册表中的盘符-分区id对应表
+    https://github.com/libyal/libregf
     :param rgf:
     :return:
     """
+    import pyregf
     regf_file = pyregf.file()
 
     regf_file.open(rgf)
@@ -130,13 +129,68 @@ def get_mounted_devices(rgf):
     return devs
 
 
+def get_mounted_devices_regfi(rgf):
+    """
+    http://projects.sentinelchicken.org/reglookup/
+    :param rgf:
+    :return:
+    """
+    import pyregfi
+    hive = pyregfi.openHive(rgf)
+    devs = {}
+    for d in hive.root.subkeys['MountedDevices'].values:
+        n: str = d.name
+        d = d.fetch_data()
+        if n.endswith(":"):
+            d = to_part_uuid(d)
+            if isinstance(d, str):
+                devs[d] = n
+    return devs
+
+
+def get_mounted_devices_hivex(rgf):
+    import hivex
+    h = hivex.Hivex(rgf)
+    m = None
+    devs = {}
+    for i in h.node_children(h.root()):
+        if h.node_name(i) == 'MountedDevices':
+            m = i
+            break
+    if m is None:
+        return devs
+    for i in h.node_values(m):
+        n: str = h.value_key(i)
+        _, d = h.value_value(i)
+        if n.endswith(":"):
+            d = to_part_uuid(d)
+            if isinstance(d, str):
+                devs[d] = n
+    return devs
+
+
+def get_mounted_devices(rgf):
+    """
+    读取注册表中的盘符-分区id对应表
+    :param rgf: 注册表文件
+    :return:
+    """
+    try:
+        return get_mounted_devices_hivex(rgf)
+    except ModuleNotFoundError:
+        try:
+            return get_mounted_devices_regfi(rgf)
+        except ModuleNotFoundError:
+            return get_mounted_devices_regf(rgf)
+
+
 def find_path_by_names(path, names):
     def path_by_name(_path, _name):
         nl = _name.lower()
         if not (os.path.isdir(path) and os.access(_path, os.R_OK) and os.access(_path, os.X_OK)):
             return None
         for _n in os.listdir(_path):
-            if _n.lower() == nl:
+            if _n.lower() == nl:  # 不区分大小写
                 return os.path.join(_path, _n)
         return None
 
@@ -180,7 +234,7 @@ def find_windows_registry(parts):
 
 
 def udisk_mount(dev_name):
-    s = Popen("udisksctl info -b '{}'|grep MountPoints|sed 's/[ \t]*MountPoints:[ \t]*//g'".format(dev_name),
+    s = Popen("df | grep '{}[ \t]\\+' |sed 's|.*[ \t]/|/|g'".format(dev_name),
               shell=True,
               stdout=PIPE).stdout.read().strip()
     if len(s) > 1:
@@ -221,6 +275,7 @@ def get_partition_drive(mount=False):
             rets.append({
                 "drive": re.sub('.*\\\\', '', dn),
                 "dev": p['DEVNAME'],
+                'fs_label': p.get('ID_FS_LABEL', ''),
                 "mount_point": p['MOUNT_POINT']
             })
 

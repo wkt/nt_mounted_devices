@@ -1,9 +1,9 @@
 # Linux读取磁盘分区的Windows盘符
 对于Linux和Windows多系统的计算机，当我们运行的是Linux系统时，<br/>
 如何知道各个磁盘分区在Windows系统的盘符呢？<br/>
-我们的这个脚本就是解决这个问题的。<br/>
+我们的这个脚本就是要解决这个问题的。<br/>
 原理也比较简单：<br/>
-&nbsp;&nbsp;先搜索windows的注册表文件，再使用pyregf读取注册表中盘符-分区id对应信息，<br/>
+&nbsp;&nbsp;先搜索windows的注册表文件，再读取注册表中盘符-分区id对应信息，<br/>
 &nbsp;&nbsp;再根据分区id生成规则计算出id，然后一比对就OK了。
 
 ### 依赖
@@ -13,6 +13,9 @@
     udisks2
     python3
     pyregf (https://github.com/libyal/libregf, Ubuntu包名: python3-libregf)
+    pyregfi (http://projects.sentinelchicken.org/reglookup, Ubuntu包名: python3-pyregfi)
+    hivex (https://libguestfs.org/, Ubuntu包名: python3-hivex)
+pyregf、pyregfi、hivex安装其中一个即可
 
 
 ### 代码示例
@@ -47,7 +50,7 @@ python3 example.py
 ## 运行环境
     原则上只要是满足依赖的Linux系统就可以工作
     但是实测的系统只有:
-        Linux: Ubuntu 21.10, Ubuntu 18.04
+        Linux: Ubuntu 18.04/20.04/21.10
         Windows: Windows 7/10
 
 

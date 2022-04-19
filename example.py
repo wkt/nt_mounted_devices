@@ -9,6 +9,7 @@
 #
 #
 import sys
+
 sys.path.append('.')
 
 import os
@@ -21,7 +22,8 @@ def test_get_partition_drive(write_drive=False):
         mp = m["mount_point"]
         dev = m['dev']
         drive = m['drive']
-        txt = "Device = {}\r\nMountPoint = {}\r\nWindowsDrive = {}\r\n\r\n".format(dev, mp, drive)
+        label = m['fs_label']
+        txt = f"Partition = {dev}\r\nLabel = {label}\r\nWindowsDrive = {drive}\r\nMountPoint = {mp}\r\n"
         print(txt)
         if write_drive:
             f = os.path.join(mp, 'nt_mounted_device.txt')
