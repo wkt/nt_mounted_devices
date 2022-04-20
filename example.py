@@ -17,7 +17,7 @@ import nt_mounted_devices
 
 
 def test_get_partition_drive(write_drive=False):
-    maps = nt_mounted_devices.get_partition_drive(mount=False)
+    maps = nt_mounted_devices.get_partition_drive(mount=True)
     for m in maps:
         mp = m["mount_point"]
         dev = m['dev']
