@@ -17,13 +17,13 @@ import nt_mounted_devices
 
 
 def test_get_partition_drive(write_drive=False):
-    maps = nt_mounted_devices.get_partition_drive(mount=True)
+    maps = nt_mounted_devices.get_partition_drive(mount=False)
     for m in maps:
         mp = m["mount_point"]
         dev = m['dev']
         drive = m['drive']
         label = m['fs_label']
-        txt = f"Partition = {dev}\r\nLabel = {label}\r\nWindowsDrive = {drive}\r\nMountPoint = {mp}\r\n"
+        txt = "Partition = {}\r\nLabel = {}\r\nWindowsDrive = {}\r\nMountPoint = {}\r\n".format(dev,label,drive,mp)
         print(txt)
         if write_drive:
             f = os.path.join(mp, 'nt_mounted_device.txt')

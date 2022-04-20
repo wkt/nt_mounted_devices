@@ -14,8 +14,22 @@ import os
 import re
 import subprocess
 import sys
+import binascii
+import struct
 from subprocess import Popen, PIPE
 
+
+def cmd_lines(*args,**kwarg):
+    lines = Popen(*args,stdout=PIPE,**kwarg).stdout.readlines()
+    lns = []
+    for ln in lines:
+        if isinstance(ln, bytes):
+            ln = ln.decode()
+        ln = ln.strip()
+        if len(ln) == 0:
+            continue
+        lns.append(ln)
+    return lns
 
 def udev_info(dev_path):
     """
@@ -35,6 +49,12 @@ def udev_info(dev_path):
     return res
 
 
+def dos_disk_id(dev_path):
+	a=open(dev_path,'rb').read(512)
+	a=a[440:444]
+	a=b''.join(list(reversed(a)))
+	return binascii.b2a_hex(a)
+
 def dos_part_uuid(part):
     """
     生成分区的id
@@ -46,16 +66,71 @@ def dos_part_uuid(part):
         return
     p1 = part.get('ID_PART_TABLE_UUID')
     p2 = int(part.get('ID_PART_ENTRY_OFFSET', 0)) * 512
-    p2 = int.to_bytes(p2, 8, byteorder='little').hex()
+    p2 = binascii.b2a_hex(struct.pack('Q',p2))
     _id = p1 + '-' + p2
     part['DOS_PART_ENTRY_UUID'] = _id
 
+def disk_info(dev_path):
+    lines = Popen("diskutil info {}|sed 's|[ \t]||g'".format(dev_path),shell=True, stdout=PIPE).stdout.readlines()
+    res = {}
+    for ln in lines:
+        if isinstance(ln, bytes):
+            ln = ln.decode()
+        ln = ln.strip()
+        if ':' in ln:
+            ll = ln.split(':', 2)
+            res[ll[0]] = ll[1]
+    #print(dev_path,res)
+    #print("\n\n\n")
+    res['DEVNAME']=dev_path
+    res['ID_FS_TYPE']=res.get('Type(Bundle)','')
+    res['ID_PART_ENTRY_UUID']=res.get('Disk/PartitionUUID','').lower()
+    res['ID_FS_LABEL'] = res.get('VolumeName','')
+    return res
 
-def get_partitions():
-    """
-    获取分区列表
-    :return:
-    """
+def gpt_r_show(dk):
+	lines = Popen("gpt -r show {}|grep 'part'".format(dk),shell=True, stdout=PIPE).stdout.readlines()
+	info = {}
+	for ln in lines:
+		if isinstance(ln, bytes):
+			ln = ln.decode()
+		ln = ln.strip()
+		ll = re.split('[ \t]+',ln,maxsplit=3)
+		pf = {'ID_PART_ENTRY_OFFSET':ll[0],'uuid':ll[-1]}
+		if 'MBR' in  ll[-1]:
+			pf['ID_PART_TABLE_TYPE'] = 'dos'
+			pf['ID_PART_TABLE_UUID'] = dos_disk_id(dk)
+		if 'GPT' in ll[-1]:
+			pf['ID_PART_TABLE_TYPE']='gpt'
+		info[dk + "s"+ll[2]] = pf
+	return info
+
+def get_partitions_mac():
+	disks = cmd_lines("diskutil list|grep ^/dev/",shell=True)
+	d_inf = {}
+	for d in disks:
+		d_inf.update(gpt_r_show(d))
+	
+	lines = Popen("diskutil list|grep 'disk[0-9]*s[0-9]*'|sed 's|.*[ \t]disk|disk|g'", shell=True, stdout=PIPE).stdout.readlines()
+	parts = []
+	for ln in lines:
+		if isinstance(ln, bytes):
+			ln = ln.decode()
+		ln = ln.strip()
+		dev = '/dev/' + ln
+		pinf = disk_info(dev)
+		pinf.update(d_inf.get(dev,{}))
+		pt = pinf.get('PartitionType',None)
+		if pt is None or pt == 'EFI' or pt == 'Apple_partition_map' or pt == 'Apple_Boot':
+			continue
+		proto = pinf.get('Protocol',None)
+		if proto is None or proto == 'DiskImage':
+			continue
+		dos_part_uuid(pinf)
+		parts.append(pinf)
+	return parts
+
+def get_partitions_linux():
     lines = Popen("grep '^[ \t]*[0-9]' /proc/partitions|awk '{print $4}'", shell=True, stdout=PIPE).stdout.readlines()
     parts = []
     for ln in lines:
@@ -78,7 +153,17 @@ def get_partitions():
     return parts
 
 
-def to_part_uuid(d: bytes):
+def get_partitions():
+	"""
+	获取分区列表
+	:return:
+	"""
+	if os.uname()[0] == 'Darwin':
+		return get_partitions_mac()
+	return get_partitions_linux()
+
+
+def to_part_uuid(d):
     """
     对注册表中的记录分区id进行转换，以方便比较
     :param d:
@@ -92,15 +177,15 @@ def to_part_uuid(d: bytes):
         p3 = d[14:16]
         p4 = d[16:18]
         p5 = d[18:]
-        p1 = bytes(reversed(p1))
-        p2 = bytes(reversed(p2))
-        p3 = bytes(reversed(p3))
-        return p1.hex() + "-" + p2.hex() + "-" + p3.hex() + "-" + p4.hex() + "-" + p5.hex()
+        p1 =  b''.join(list(reversed(p1)))
+        p2 =  b''.join(list(reversed(p2)))
+        p3 =  b''.join(list(reversed(p3)))
+        return binascii.b2a_hex(p1) + "-" + binascii.b2a_hex(p2) + "-" + binascii.b2a_hex(p3) + "-" + binascii.b2a_hex(p4) + "-" + binascii.b2a_hex(p5)
     elif n == 12:
         # MBR
-        p1 = bytes(reversed(d[:4]))
-        p2 = bytes(d[4:])
-        return p1.hex() + '-' + p2.hex()
+        p1 = b''.join(list(reversed(d[:4])))
+        p2 = d[4:]
+        return binascii.b2a_hex(p1) + '-' + binascii.b2a_hex(p2)
     return d
 
 
@@ -119,7 +204,7 @@ def get_mounted_devices_regf(rgf):
     device = root_key.get_sub_key_by_name("MountedDevices")
     devs = {}
     for d in device.values:
-        n: str = d.get_name()
+        n = d.get_name()
         d = d.get_data()
         if n.endswith(":"):
             d = to_part_uuid(d)
@@ -139,7 +224,7 @@ def get_mounted_devices_regfi(rgf):
     hive = pyregfi.openHive(rgf)
     devs = {}
     for d in hive.root.subkeys['MountedDevices'].values:
-        n: str = d.name
+        n = d.name
         d = d.fetch_data()
         if n.endswith(":"):
             d = to_part_uuid(d)
@@ -160,7 +245,7 @@ def get_mounted_devices_hivex(rgf):
     if m is None:
         return devs
     for i in h.node_values(m):
-        n: str = h.value_key(i)
+        n = h.value_key(i)
         _, d = h.value_value(i)
         if n.endswith(":"):
             d = to_part_uuid(d)
@@ -177,10 +262,10 @@ def get_mounted_devices(rgf):
     """
     try:
         return get_mounted_devices_hivex(rgf)
-    except ModuleNotFoundError:
+    except:
         try:
             return get_mounted_devices_regfi(rgf)
-        except ModuleNotFoundError:
+        except :
             return get_mounted_devices_regf(rgf)
 
 
@@ -208,14 +293,13 @@ def find_windows_registry(parts):
     :param parts:分区列表
     :return:
     """
-    lines = Popen("grep ^/dev /proc/mounts| awk '{print $1\" \"$2}'", shell=True, stdout=PIPE).stdout.readlines()
+    lines = Popen("df|grep ^/dev|sed 's|[ \t].*%| |g'", shell=True, stdout=PIPE).stdout.readlines()
     mps = {}
     for ln in lines:
         if isinstance(ln, bytes):
             ln = ln.decode()
         ln = ln.strip()
-        ll = ln.split(' ', 2)
-
+        ll = ln.split()
         mps[ll[0]] = ll[1]
     rtf = None
     for p in parts:
@@ -257,9 +341,10 @@ def get_partition_drive(mount=False):
             udisk_mount(p['DEVNAME'])
     rgf = find_windows_registry(partitions)
     if rgf is None:
-        print("Can not find the Windows system", file=sys.stderr)
+        print("Can not find the Windows system")
         return []
     mount_devs = get_mounted_devices(rgf)
+    print("mount_devs: \n{}".format(mount_devs))
     rets = []
     for p in partitions:
         pt = p.get('ID_PART_TABLE_TYPE', None)
@@ -280,3 +365,6 @@ def get_partition_drive(mount=False):
             })
 
     return rets
+
+if __name__ == '__main__':
+	print(get_partition_drive())
