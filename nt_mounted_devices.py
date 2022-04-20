@@ -24,7 +24,7 @@ def cmd_lines(*args, **kwarg):
     lns = []
     for ln in lines:
         if isinstance(ln, bytes):
-            ln = ln.decode()
+            ln = ln.decode('utf-8')
         ln = ln.strip()
         if len(ln) == 0:
             continue
@@ -42,7 +42,7 @@ def udev_info(dev_path):
     res = {}
     for ln in lines:
         if isinstance(ln, bytes):
-            ln = ln.decode()
+            ln = ln.decode('utf-8')
         ln = ln.strip()
         if '=' in ln:
             ll = ln.split('=', 2)
@@ -78,7 +78,7 @@ def disk_info(dev_path):
     res = {}
     for ln in lines:
         if isinstance(ln, bytes):
-            ln = ln.decode()
+            ln = ln.decode('utf-8')
         ln = ln.strip()
         if ':' in ln:
             ll = ln.split(':', 2)
@@ -93,11 +93,11 @@ def disk_info(dev_path):
 
 
 def gpt_r_show(dk):
-    lines = Popen("gpt -r show {}|grep 'part'".format(dk), shell=True, stdout=PIPE).stdout.readlines()
+    lines = Popen("gpt -r show {} 2>/dev/null |grep part".format(dk), shell=True, stdout=PIPE).stdout.readlines()
     info = {}
     for ln in lines:
         if isinstance(ln, bytes):
-            ln = ln.decode()
+            ln = ln.decode('utf-8')
         ln = ln.strip()
         ll = re.split('[ \t]+', ln, maxsplit=3)
         pf = {'ID_PART_ENTRY_OFFSET': ll[0], 'uuid': ll[-1]}
@@ -111,7 +111,7 @@ def gpt_r_show(dk):
 
 
 def get_partitions_mac():
-    disks = cmd_lines("diskutil list|grep ^/dev/", shell=True)
+    disks = cmd_lines("diskutil list|grep ^/dev/|sed 's|[ \t][ \t]*(.*||g'", shell=True)
     d_inf = {}
     for d in disks:
         d_inf.update(gpt_r_show(d))
@@ -121,7 +121,7 @@ def get_partitions_mac():
     parts = []
     for ln in lines:
         if isinstance(ln, bytes):
-            ln = ln.decode()
+            ln = ln.decode('utf-8')
         ln = ln.strip()
         dev = '/dev/' + ln
         pinf = disk_info(dev)
@@ -142,7 +142,7 @@ def get_partitions_linux():
     parts = []
     for ln in lines:
         if isinstance(ln, bytes):
-            ln = ln.decode()
+            ln = ln.decode('utf-8')
         ln = ln.strip()
         dev = '/dev/' + ln
         info = udev_info(dev)
@@ -160,12 +160,16 @@ def get_partitions_linux():
     return parts
 
 
+def is_darwin():
+    return os.uname()[0] == 'Darwin'
+
+
 def get_partitions():
     """
     获取分区列表
     :return:
     """
-    if os.uname()[0] == 'Darwin':
+    if is_darwin():
         return get_partitions_mac()
     return get_partitions_linux()
 
@@ -225,7 +229,6 @@ def get_mounted_devices_regf(rgf):
         d = d.get_data()
         if n.endswith(":"):
             d = to_part_uuid(d)
-            print(n, d)
             if isinstance(d, str):
                 devs[d] = n
     regf_file.close()
@@ -315,9 +318,9 @@ def find_windows_registry(parts):
     mps = {}
     for ln in lines:
         if isinstance(ln, bytes):
-            ln = ln.decode()
+            ln = ln.decode('utf-8')
         ln = ln.strip()
-        ll = ln.split()
+        ll = re.split('[ \t]+', ln, maxsplit=1)
         mps[ll[0]] = ll[1]
     rtf = None
     for p in parts:
@@ -335,16 +338,17 @@ def find_windows_registry(parts):
     return rtf
 
 
-def udisk_mount(dev_name):
-    s = Popen("df | grep '{}[ \t]\\+' |sed 's|.*[ \t]/|/|g'".format(dev_name),
+def disk_mount(dev_name):
+    s = Popen("df | grep '{}[ \t][ \t]*' |sed 's|.*[ \t]/|/|g'".format(dev_name),
               shell=True,
               stdout=PIPE).stdout.read().strip()
     if len(s) > 1:
         # 已挂载，不再处理
         return
-    subprocess.run("udisksctl mount -b '{}'".format(dev_name), shell=True,
-                   stdout=subprocess.DEVNULL,
-                   stderr=subprocess.DEVNULL)
+    if is_darwin():
+        cmd_lines("diskutil mount '{}'".format(dev_name), stderr=subprocess.STDOUT, shell=True)
+    else:
+        cmd_lines("udisksctl mount -b '{}'".format(dev_name), stderr=subprocess.STDOUT, shell=True)
 
 
 def get_partition_drive(mount=False):
@@ -356,7 +360,7 @@ def get_partition_drive(mount=False):
     partitions = get_partitions()
     if mount:
         for p in partitions:
-            udisk_mount(p['DEVNAME'])
+            disk_mount(p['DEVNAME'])
     rgf = find_windows_registry(partitions)
     if rgf is None:
         print("Can not find the Windows system")
@@ -376,8 +380,8 @@ def get_partition_drive(mount=False):
         dn = mount_devs.get(u, None)
         if dn is not None:
             rets.append({
-                "drive": re.sub('.*\\\\', '', dn),
-                "dev": p['DEVNAME'],
+                "windows_drive": re.sub('.*\\\\', '', dn),
+                "partition": p['DEVNAME'],
                 'fs_label': p.get('ID_FS_LABEL', ''),
                 "mount_point": p['MOUNT_POINT']
             })

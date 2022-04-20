@@ -10,7 +10,7 @@
     udev
     grep
     awk
-    udisks2
+    udisks2(Linux,macOS则不需要)
     python3
     pyregf (https://github.com/libyal/libregf, Ubuntu包名: python3-libregf)
     pyregfi (http://projects.sentinelchicken.org/reglookup, Ubuntu包名: python3-pyregfi)
@@ -50,7 +50,7 @@ python3 example.py
 ## 运行环境
     原则上只要是满足依赖的Linux系统就可以工作
     但是实测的系统只有:
-        Linux: Ubuntu 18.04/20.04/21.10
+        unix: Ubuntu 18.04/20.04/21.10 Manjaro 21.2.6 macOS 10.14.4
         Windows: Windows 7/10
 
 
