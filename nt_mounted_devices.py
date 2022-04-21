@@ -12,6 +12,7 @@
 
 import os
 import re
+import stat
 import subprocess
 import sys
 import binascii
@@ -51,11 +52,35 @@ def udev_info(dev_path):
     return res
 
 
-def dos_disk_id(dev_path):
+def _py_dos_disk_id(dev_path):
     a = open(dev_path, 'rb').read(512)
     a = a[440:444]
     a = b''.join(list(reversed(a)))
     return binascii.b2a_hex(a)
+
+
+def _cmd_dos_disk_id(prog, dev_path):
+    st = os.stat(prog)
+    sudo = ""
+    if st.st_uid != 0:
+        sudo += "chown root '{}';".format(prog)
+    if st.st_mode & stat.S_ISUID != stat.S_ISUID:
+        sudo += "chmod u+rxs '{}';".format(prog)
+    if len(sudo) > 0:
+        cmd_lines(['sudo', 'sh', '-c', sudo])
+    ll = cmd_lines([prog, dev_path])
+    if len(ll) > 0:
+        ll = ll[0]
+    else:
+        ll = ''
+    return re.sub('^/dev/.*:[ \t]', '', ll).strip()
+
+
+def dos_disk_id(dev_path):
+    prog = os.path.join(os.path.dirname(__file__), 'dos_disk_id')
+    if os.path.isfile(prog) and os.getuid() != 0:
+        return _cmd_dos_disk_id(prog, dev_path)
+    return _py_dos_disk_id(dev_path)
 
 
 def dos_part_uuid(part):
@@ -70,7 +95,7 @@ def dos_part_uuid(part):
     p1 = part.get('ID_PART_TABLE_UUID')
     p2 = int(part.get('ID_PART_ENTRY_OFFSET', 0))
     if not is_darwin():
-        p2 = p2*512
+        p2 = p2 * 512
     p2 = binascii.b2a_hex(struct.pack('Q', p2))
     _id = p1 + '-' + p2
     part['DOS_PART_ENTRY_UUID'] = _id
@@ -114,69 +139,69 @@ def gpt_r_show(dk):
 
 
 def ioreg_info():
-	s = Popen("ioreg -c IOMedia -r -a",shell=True,stdout=PIPE).stdout.read()
-	import xml.etree.ElementTree as ET
-	tree = ET.fromstring(s)
-	root = tree
+    s = Popen("ioreg -c IOMedia -r -a", shell=True, stdout=PIPE).stdout.read()
+    import xml.etree.ElementTree as ET
+    tree = ET.fromstring(s)
+    root = tree
 
-	def to_object(e):
-		res = {}
-		k = None
-		for c in e:
-			if c.tag == 'key':
-				k = c.text
-			elif c.tag == 'integer':
-				res[k] = int(c.text)
-			elif c.tag == 'false':
-				res[k] = False
-			elif c.tag == 'true':
-				res[k] = True
-			elif c.tag == 'dict':
-				res[k] = to_object(c)
-			elif c.tag == 'array':
-				res[k] = to_array(c)
-			else:
-				res[k] = c.text
-		return res
+    def to_object(e):
+        res = {}
+        k = None
+        for c in e:
+            if c.tag == 'key':
+                k = c.text
+            elif c.tag == 'integer':
+                res[k] = int(c.text)
+            elif c.tag == 'false':
+                res[k] = False
+            elif c.tag == 'true':
+                res[k] = True
+            elif c.tag == 'dict':
+                res[k] = to_object(c)
+            elif c.tag == 'array':
+                res[k] = to_array(c)
+            else:
+                res[k] = c.text
+        return res
 
-	def to_array(e):
-		res = []
-		for c in e:
-			if c.tag == 'dict':
-				res.append(to_object(c))
-			elif c.tag == 'array':
-				res.append(to_array(c))
-			else:
-				res.append((c.tag,c.text))
-		return res
-	
-	res = {}
-	array = to_array(root[0])
-	for a in array:
-		pt = a["Content"]
-		disk_id = ''
-		if pt == "GUID_partition_scheme":
-			pt = 'gpt'
-		else:
-			disk_id = dos_disk_id('/dev/'+a["BSD Name"])
-			pt = 'dos'
-		for ll in a.get('IORegistryEntryChildren',[]):
-			for d in ll.get('IORegistryEntryChildren',[]):
-				dk = d.get("BSD Name",None)
-				if dk is None:
-					continue
-				dk = '/dev/'+dk
-				pf = {'ID_PART_ENTRY_OFFSET': d.get("Base",0), 'uuid': d.get("UUID","")}
-				pf['ID_PART_TABLE_TYPE'] = pt
-				if pt == 'dos':
-					pf['ID_PART_TABLE_UUID'] = disk_id
-				res[dk] = pf
-	#json.dump(res, sys.stdout, indent=2, ensure_ascii=False)
-	#print("")
-	return res
+    def to_array(e):
+        res = []
+        for c in e:
+            if c.tag == 'dict':
+                res.append(to_object(c))
+            elif c.tag == 'array':
+                res.append(to_array(c))
+            else:
+                res.append((c.tag, c.text))
+        return res
+
+    res = {}
+    array = to_array(root[0])
+    for a in array:
+        pt = a["Content"]
+        disk_id = ''
+        if pt == "GUID_partition_scheme":
+            pt = 'gpt'
+        else:
+            disk_id = dos_disk_id('/dev/' + a["BSD Name"])
+            pt = 'dos'
+        for ll in a.get('IORegistryEntryChildren', []):
+            for d in ll.get('IORegistryEntryChildren', []):
+                dk = d.get("BSD Name", None)
+                if dk is None:
+                    continue
+                dk = '/dev/' + dk
+                pf = {'ID_PART_ENTRY_OFFSET': d.get("Base", 0), 'uuid': d.get("UUID", ""), 'ID_PART_TABLE_TYPE': pt}
+                if pt == 'dos':
+                    pf['ID_PART_TABLE_UUID'] = disk_id
+                res[dk] = pf
+    json.dump(res, sys.stdout, indent=2, ensure_ascii=False)
+    print("")
+    return res
+
 
 def get_partitions_mac():
-    #disks = cmd_lines("diskutil list|grep ^/dev/|sed 's|[ \t][ \t]*(.*||g'", shell=True)
+    # disks = cmd_lines("diskutil list|grep ^/dev/|sed 's|[ \t][ \t]*(.*||g'", shell=True)
     d_inf = ioreg_info()
 
     lines = Popen("diskutil list|grep 'disk[0-9]*s[0-9]*'|sed 's|.*[ \t]disk|disk|g'", shell=True,
@@ -189,7 +214,7 @@ def get_partitions_mac():
         dev = '/dev/' + ln
         pinf = disk_info(dev)
         pinf.update(d_inf.get(dev, {}))
-        
+
         pt = pinf.get('PartitionType', None)
         if pt is None or pt == 'EFI' or pt == 'Apple_partition_map' or pt == 'Apple_Boot':
             continue
@@ -431,9 +456,9 @@ def get_partition_drive(mount=False):
         return []
     mount_devs = get_mounted_devices(rgf)
     # print("mount_devs: \n{}".format(mount_devs))
-    #json.dump(partitions, sys.stdout, indent=2, ensure_ascii=False)
-    #print("")
-    #json.dump(mount_devs, sys.stdout, indent=2, ensure_ascii=False)
+    # json.dump(partitions, sys.stdout, indent=2, ensure_ascii=False)
+    # print("")
+    # json.dump(mount_devs, sys.stdout, indent=2, ensure_ascii=False)
     rets = []
     for p in partitions:
         pt = p.get('ID_PART_TABLE_TYPE', None)
