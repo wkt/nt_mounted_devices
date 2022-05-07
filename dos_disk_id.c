@@ -17,7 +17,7 @@
 #include <unistd.h>
 #include <libproc.h>
 
-static void usage()
+inline static void usage()
 {
     fprintf(stderr,"Usage: \r\n    dos_disk_id disk_path\r\n");
 }
@@ -25,7 +25,7 @@ static void usage()
 /**
     Change process's user id to @uid
 **/
-static int try_seteuid(uid_t uid)
+inline static int try_seteuid(uid_t uid)
 {
     int ret;
     char path[PROC_PIDPATHINFO_MAXSIZE] = {0};

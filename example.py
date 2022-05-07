@@ -30,5 +30,30 @@ def test_get_partition_drive(write_drive=False):
     print("")
 
 
+def read_window_version():
+    import pyregf
+    regf_file = pyregf.file()
+
+    rgf = 'SOFTWARE'
+    regf_file.open(rgf)
+
+    root_key = regf_file.get_root_key()
+    path = "\\Microsoft\\Windows NT\\CurrentVersion"
+    print("path:", path, len(path))
+    device = root_key.get_sub_key_by_path(path)
+    pn = device.get_value_by_name('ProductName')
+    csd = device.get_value_by_name('CSDVersion')
+    bde = device.get_value_by_name('BuildLabEx')
+    bits = ''
+    if 'x86' in bde.get_data_as_string():
+        bits = 'x86 32 bit'
+    if 'amd64' in bde.get_data_as_string():
+        bits = 'x86 64 bit'
+    print(pn.get_data_as_string())
+    print(bde.get_data_as_string())
+    print(bits)
+
+
 if __name__ == '__main__':
     test_get_partition_drive()
+    #read_window_version()

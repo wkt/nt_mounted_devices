@@ -49,6 +49,9 @@ def udev_info(dev_path):
         if '=' in ln:
             ll = ln.split('=', 2)
             res[ll[0]] = ll[1]
+    pes = res.get('ID_PART_ENTRY_SCHEME', None)
+    if pes is not None and len(pes) > 0:
+        res['ID_PART_TABLE_TYPE'] = pes
     return res
 
 
@@ -90,6 +93,7 @@ def dos_part_uuid(part):
     :return:
     """
     pt = part.get('ID_PART_TABLE_TYPE', None)
+
     if pt != 'dos':
         return
     p1 = part.get('ID_PART_TABLE_UUID')
@@ -97,6 +101,8 @@ def dos_part_uuid(part):
     if not is_darwin():
         p2 = p2 * 512
     p2 = binascii.b2a_hex(struct.pack('Q', p2))
+    if isinstance(p2, bytes):
+        p2 = p2.decode()
     _id = p1 + '-' + p2
     part['DOS_PART_ENTRY_UUID'] = _id
 
